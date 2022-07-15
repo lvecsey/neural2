@@ -9,37 +9,43 @@
 
 #include "forward.h"
 
-double neural_forward(vec3 input, long int num_neurons, vec3 *weights) {
+double neural_forward(double *inputs, long int num_neurons, double *weights, double bias_weight) {
 
   double current_output;
   
   long int ono;
 
-  double moided;
+  double nodesum;
 
-  long int nodesum;
-
-  double output;
+  double sum;
   
-  moided = 0.0;
-
-  output = 0.0;
+  sum = 0.0;
   
   for (ono = 0; ono < num_neurons; ono++) {
+    
+    nodesum = (weights[3*ono+0] * inputs[0]);
+    nodesum += (weights[3*ono+1] * inputs[1]);
+    nodesum += (weights[3*ono+2] * inputs[2]);
 
-    nodesum = weights[ono][0] * input[0] + weights[ono][1] * input[1] + weights[ono][2] * input[2];
-      
-    output += nodesum;
+    sum += nodesum;
       
   }
-    
-  current_output = sigmoid(output);
 
+  {
+
+    nodesum = (bias_weight * 1.0);
+
+    sum += nodesum;
+    
+  }
+
+  current_output = sigmoid(sum);
+    
   return current_output;
 
 }
 
-nf_ret neural_forwarderr(vec3 input, double output, long int num_neurons, vec3 *weights) {
+nf_ret neural_forwarderr(double *inputs, double output, long int num_neurons, double *weights, double bias_weight, squashed_nodes *sq_cache) {
 
   nf_ret nf;
   
@@ -47,88 +53,57 @@ nf_ret neural_forwarderr(vec3 input, double output, long int num_neurons, vec3 *
 
   double err;
 
-  long int nodesum;
+  double nodesum;
 
+  double moided;
+  
   double sum;
   
   err = 0.0;
 
-  nf.mse = 0.0;
-
   sum = 0.0;
+
+  nf.mse = 0.0;
   
   for (ono = 0; ono < num_neurons; ono++) {
 
-    nodesum = weights[ono][0] * input[0] + weights[ono][1] * input[1] + weights[ono][2] * input[2];
+    nodesum = (weights[3*ono+0] * inputs[0]);
+    nodesum += (weights[3*ono+1] * inputs[1]);
+    nodesum += (weights[3*ono+2] * inputs[2]);
+
+    moided = sigmoid(nodesum);
+    
+    sq_cache->hidden_nodesums[ono] = nodesum;
+
+    sq_cache->hidden_squashed[ono] = moided;
 
     sum += nodesum;
-    
-    err = (output - nodesum);
 
+    err = (output - moided);
+    
     nf.mse += (err * err);
     
   }
-    
-  nf.current_output = sigmoid(sum);
 
-  nf.mse /= num_neurons;
-  
-  return nf;
-
-}
-
-nf_ret neural_forwarderr2(vec3 input, double output, long int num_neurons, vec3 *weights, double *hidden) {
-
-  nf_ret nf;
-  
-  double sum;
-
-  long int ono;
-
-  double nodesum;
-
-  double err;
-  
-  sum = 0.0;
-
-  for (ono = 0; ono < num_neurons; ono++) {
-
-    nodesum = weights[ono][0] * input[0] + weights[ono][1] * input[1] + weights[ono][2] * input[2];
-
-    sum += nodesum;
-    
-    hidden[ono] = sigmoid(nodesum);
-      
-  }
-    
   {
 
-    double sum;
+    nodesum = (bias_weight * 1.0);
 
-    long int wno;
+    moided = sigmoid(nodesum);
     
-    sum = 0.0;
+    sum += nodesum;
 
-    nf.mse = 0.0;
-
-    for (wno = 0; wno < num_neurons; wno++) {
-
-      nodesum = weights[wno + num_neurons][0] * hidden[wno] + weights[wno + num_neurons][1] * hidden[wno] + weights[wno + num_neurons][2] * hidden[wno];
-
-      sum += nodesum;
-      
-      err = (output - nodesum);
-      
-      nf.mse += (err * err);
-      
-    }
-
-    nf.current_output = sigmoid(sum);
-
-    nf.mse /= num_neurons;
+    err = (output - moided);
+    
+    nf.mse += (err * err);
     
   }
 
-  return nf;
+  nf.mse /= (num_neurons + 1);
   
+  nf.current_output = sigmoid(sum);
+  
+  return nf;
+
 }
+

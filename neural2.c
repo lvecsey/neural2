@@ -31,8 +31,6 @@
 
 #include "linmath.h"
 
-#include "dotproduct.h"
-
 #include "relu.h"
 
 #include "relu_deriv.h"
@@ -46,6 +44,8 @@
 #include "sigmoid_deriv.h"
 
 #include "forward.h"
+
+#include "forward2.h"
 
 #include "neural_cfg.h"
 
@@ -89,25 +89,23 @@ int set_range(vec3 *values, long int num_values) {
   
 }
 
-int set_random(int rnd_fd, vec3 *values, long int num_values) {
+int set_random(int rnd_fd, double *values, long int num_values) {
 
   long int valno;
 
   ssize_t bytes_read;
 
-  uint64_t rnds[3];
+  uint64_t rndval;
   
   for (valno = 0; valno < num_values; valno++) {
 
-    bytes_read = read(rnd_fd, rnds, sizeof(uint64_t) * 3);
-    if (bytes_read != sizeof(uint64_t) * 3) {
+    bytes_read = read(rnd_fd, &rndval, sizeof(uint64_t));
+    if (bytes_read != sizeof(uint64_t)) {
       perror("read");
       return -1;
     }
 
-    values[valno][0] = -1.0 + (2.0 * rnds[0]) / 18446744073709551615.0;
-    values[valno][1] = -1.0 + (2.0 * rnds[1]) / 18446744073709551615.0;
-    values[valno][2] = -1.0 + (2.0 * rnds[2]) / 18446744073709551615.0;
+    values[valno] = -1.0 + (2.0 * rndval) / 18446744073709551615.0;
     
   }
 
@@ -115,30 +113,62 @@ int set_random(int rnd_fd, vec3 *values, long int num_values) {
   
 }
 
-bool_t xdr_vec3 (XDR *xdrs, void *extra) {
+long int assign_trainingrows(int rnd_fd, long int num_rows, double *training_inputs, double *training_outputs, long int num_dataset, vec3 *dataset_inputs, vec3 *dataset_outputs) {
 
-  vec3 *nup;
+  long int rowno;
 
-  nup = (vec3*) extra;
+  long int acumno;
+
+  double training_portion;
+
+  long int num_accumulated;
+
+  ssize_t bytes_read;
+
+  uint64_t rndval;
   
-  if (!xdr_float(xdrs, nup[0])) {
-    return FALSE;
+  training_portion = 0.80;
+    
+  acumno = 0;
+    
+  for (rowno = 0; rowno < num_dataset; rowno++) {
+
+    double training_sample;
+      
+    bytes_read = read(rnd_fd, &rndval, sizeof(uint64_t));
+    if (bytes_read != sizeof(uint64_t)) {
+      perror("read");
+      return -1;
+    }
+
+    training_sample = (rndval / 18446744073709551615.0);
+
+    if (training_sample < training_portion) {
+
+      dataset_inputs[acumno][0] = training_inputs[0*num_rows+rowno];
+      dataset_inputs[acumno][1] = training_inputs[1*num_rows+rowno];
+      dataset_inputs[acumno][2] = training_inputs[2*num_rows+rowno];
+      dataset_outputs[acumno][0] = training_outputs[rowno];
+      dataset_outputs[acumno][1] = 0.0;
+      dataset_outputs[acumno][2] = 0.0;
+
+      acumno++;
+
+    }
+
   }
 
-  if (!xdr_float(xdrs, nup[1])) {
-    return FALSE;
-  }
-
-  if (!xdr_float(xdrs, nup[2])) {
-    return FALSE;
-  }
-
-  return (TRUE);
+  num_accumulated = acumno;
+  
+  return num_accumulated;
+    
 }
+
+
 
 int main(int argc, char *argv[]) {
 
-  vec3 *weights;
+  double *weights;
 
   long int num_neurons;
 
@@ -153,16 +183,20 @@ int main(int argc, char *argv[]) {
   
   vec3 *dataset_outputs;
   
-  vec3 *inputs;
+  double *inputs;
 
-  vec3 *outputs;
+  double *outputs;
 
   double bias_weight;
+
+  double *hidden_squashed;
+
+  double *hidden_nodesums;
+
+  double *output_nodesums;
   
-  double *hidden;
-
-  double *outputs_cache;
-
+  squashed_nodes sq_cache;
+  
   long int wno;
   
   int rnd_fd;
@@ -175,17 +209,9 @@ int main(int argc, char *argv[]) {
 
   long int num_outputs;
   
-  long int ono;
-  
   double percent_completed;
 
   long int num_weights;
-
-  double sum;
-
-  vec3 input;
-
-  vec3 output;
 
   uint64_t rnds[3];
 	  
@@ -210,6 +236,10 @@ int main(int argc, char *argv[]) {
   long int num_accumulated;
 
   nf_ret nf;
+
+  long int num_layers;
+
+  num_layers = def_layers;
   
   env_VERBOSE = getenv("VERBOSE");
 
@@ -223,14 +253,30 @@ int main(int argc, char *argv[]) {
   }
   
   learning_rate = 0.00125;
+
+  num_inputs = 3;
+
+  num_outputs = 1;
+
+  inputs = malloc(sizeof(double) * num_inputs);
+  if (inputs == NULL) {
+    perror("malloc");
+    return -1;
+  }
+
+  outputs = malloc(sizeof(double) * num_outputs);
+  if (outputs == NULL) {
+    perror("malloc");
+    return -1;
+  }
   
   num_neurons = argc>1 ? strtol(argv[1],NULL,10) : def_neurons;
   
   num_iters = argc>2 ? strtol(argv[2],NULL,10) : def_iters;
 
-  input[0] = argc>3 ? strtod(argv[3],NULL) : 0.37;
-  input[1] = argc>4 ? strtod(argv[4],NULL) : 0.75;
-  input[2] = argc>5 ? strtod(argv[5],NULL) : 0.21;
+  inputs[0] = argc>3 ? strtod(argv[3],NULL) : 0.37;
+  inputs[1] = argc>4 ? strtod(argv[4],NULL) : 0.75;
+  inputs[2] = argc>5 ? strtod(argv[5],NULL) : 0.21;
 
   rnd_fd = open("/dev/urandom", O_RDONLY);
   if (rnd_fd == -1) {
@@ -238,12 +284,16 @@ int main(int argc, char *argv[]) {
     return -1;
   }
 
-  num_inputs = 3;
+  switch(num_layers) {
+  case 1:
+    num_weights = 3 * num_neurons;
+    break;
 
-  num_outputs = 1;
-  
-  num_weights = num_neurons;
-  
+  case 2:
+    num_weights = (3 * num_neurons) + num_neurons;
+    break;
+  }
+      
   {
 
     XDR xdrs;
@@ -312,74 +362,8 @@ int main(int argc, char *argv[]) {
 
   }
 
-  {
-
-    long int rowno;
-
-    long int acumno;
-
-    double training_portion;
-
-    for (rowno = 0; rowno < num_dataset; rowno++) {
-      dataset_inputs[rowno][0] = training_inputs[0*num_rows+rowno];
-      dataset_inputs[rowno][1] = training_inputs[1*num_rows+rowno];
-      dataset_inputs[rowno][2] = training_inputs[2*num_rows+rowno];
-      dataset_outputs[rowno][0] = training_outputs[rowno];
-      dataset_outputs[rowno][1] = 0.0;
-      dataset_outputs[rowno][2] = 0.0;
-    }
-
-    free(training_inputs);
-    free(training_outputs);
-
-    inputs = malloc(sizeof(vec3) * num_dataset);
-    if (inputs == NULL) {
-      perror("malloc");
-      return -1;
-    }
-
-    outputs = malloc(sizeof(vec3) * num_dataset);
-    if (outputs == NULL) {
-      perror("malloc");
-      return -1;
-    }
-    
-    training_portion = 0.80;
-    
-    acumno = 0;
-    
-    for (rowno = 0; rowno < num_dataset; rowno++) {
-
-      double training_sample;
-      
-      bytes_read = read(rnd_fd, rnds, sizeof(uint64_t));
-      if (bytes_read != sizeof(uint64_t)) {
-	perror("read");
-	return -1;
-      }
-
-      training_sample = (rnds[0] / 18446744073709551615.0);
-
-      if (training_sample < training_portion) {
-      
-	inputs[acumno][0] = dataset_inputs[rowno][0];
-	inputs[acumno][1] = dataset_inputs[rowno][1];
-	inputs[acumno][2] = dataset_inputs[rowno][2];
-
-	outputs[acumno][0] = dataset_outputs[rowno][0];
-	outputs[acumno][1] = dataset_outputs[rowno][1];
-	outputs[acumno][2] = dataset_outputs[rowno][2];
-
-	acumno++;
-	
-      }
-
-    }
-
-    num_accumulated = acumno;
-    
-  }
-
+  num_accumulated = assign_trainingrows(rnd_fd, num_rows, training_inputs, training_outputs, num_dataset, dataset_inputs, dataset_outputs);
+  
   printf("Processed %ld rows of training data.\n", num_accumulated);
 
   printf("Dataset inputs: \n");
@@ -393,27 +377,42 @@ int main(int argc, char *argv[]) {
   {
 
     printf("Allocating %ld weights.\n", num_weights);
-    weights = malloc(sizeof(vec3) * num_weights);
+    weights = malloc(sizeof(double) * num_weights);
     if (weights == NULL) {
       perror("malloc");
       return -1;
     }
 
-    /*
-    printf("Allocating %ld hidden nodes.\n", num_neurons);    
-    hidden = malloc(sizeof(double) * num_neurons);
-    if (hidden == NULL) {
+    printf("Allocating %ld hidden (squashed) nodes.\n", num_neurons);    
+    hidden_squashed = malloc(sizeof(double) * num_neurons);
+    if (hidden_squashed == NULL) {
       perror("malloc");
       return -1;
     }
-    */
     
-    printf("Allocating %ld output nodes.\n", num_neurons);    
-    outputs_cache = malloc(sizeof(double) * num_neurons);
-    if (outputs_cache == NULL) {
+    printf("Allocating %ld hidden nodesums.\n", num_neurons);    
+    hidden_nodesums = malloc(sizeof(double) * num_neurons);
+    if (hidden_nodesums == NULL) {
       perror("malloc");
       return -1;
     }
+
+    printf("Allocating %ld output nodesums.\n", num_neurons);    
+    output_nodesums = malloc(sizeof(double) * num_neurons);
+    if (output_nodesums == NULL) {
+      perror("malloc");
+      return -1;
+    }
+    
+  }
+
+  {
+
+    sq_cache.hidden_squashed = hidden_squashed;
+    
+    sq_cache.hidden_nodesums = hidden_nodesums;
+
+    sq_cache.output_nodesums = output_nodesums;
 
   }
   
@@ -445,9 +444,16 @@ int main(int argc, char *argv[]) {
 	return -1;
       }
 
-      bret = xdr_vector(&xdrs, weights, 3 * num_weights, sizeof(float), xdr_float);
+      bret = xdr_vector(&xdrs, weights, num_weights, sizeof(double), xdr_double);
       if (!bret) {
 	printf("Trouble retrieving weights from %s.\n", nn_xdrfn);
+	return -1;
+      }
+
+      bret = xdr_vector(&xdrs, &bias_weight, 1, sizeof(double), xdr_double);
+
+      if (!bret) {
+	printf("Trouble retrieving bias weight from %s.\n", nn_xdrfn);
 	return -1;
       }
       
@@ -471,41 +477,18 @@ int main(int argc, char *argv[]) {
 
       for (wno = 0; wno < num_weights; wno++) {
 
-	weights[wno][0] *= 0.95;
-	weights[wno][1] *= 0.95;
-	weights[wno][2] *= 0.95;
+	weights[wno] *= 0.95;
 
-	weights[wno][0] += 1.05;
-	weights[wno][1] += 1.05;
-	weights[wno][2] += 1.05;	
+	weights[wno] += 1.05;
 	
       }
 
-      bias_weight = (2.0 - 0.1) * 0.5;
-      
-      for (ono = 0; ono < num_neurons; ono++) {
-	outputs_cache[ono] = 0.0;
-      }
-
-    }
-
-    {
-
-      long int rowno;
-      
-      for (rowno = 0; rowno < num_dataset; rowno++) {
-	inputs[rowno][0] = dataset_inputs[rowno][0];
-	inputs[rowno][1] = dataset_inputs[rowno][1];
-	inputs[rowno][2] = dataset_inputs[rowno][2];
-	outputs[rowno][0] = dataset_outputs[rowno][0];
-	outputs[rowno][1] = dataset_outputs[rowno][0];
-	outputs[rowno][2] = dataset_outputs[rowno][0];
-      }
+      bias_weight = 1.0; 
 
     }
 
   }
-
+  
   {
 
     double actual_y;
@@ -520,96 +503,155 @@ int main(int argc, char *argv[]) {
       return -1;
     }
 
+    nf.mse = 0.0;
+    
     rowno = 0;
     
     for (iterno = 0; iterno < num_iters; iterno++) {
 
+      long int unique_trainings;
+      
       percent_completed = iterno; percent_completed /= (num_iters - 1);
 
+      unique_trainings = 10;
+      
       {
 
-	double nodesum;
+	if (!rowno && (!(iterno % (num_iters / unique_trainings)))) {
+
+	  num_accumulated = assign_trainingrows(rnd_fd, num_rows, training_inputs, training_outputs, num_dataset, dataset_inputs, dataset_outputs);
+
+	}
 	
-	sum = 0.0;
+	inputs[0] = dataset_inputs[rowno][0];
+	inputs[1] = dataset_inputs[rowno][1];
+	inputs[2] = dataset_inputs[rowno][2];
 
-	input[0] = inputs[rowno][0];
-	input[1] = inputs[rowno][1];
-	input[2] = inputs[rowno][2];
-
-	output[0] = outputs[rowno][0];
-	output[1] = outputs[rowno][1];
-	output[2] = outputs[rowno][2];
+	outputs[0] = dataset_outputs[rowno][0];
 
 	rowno++;
 
 	rowno %= num_accumulated;
-
-	nf = neural_forwarderr(input, output[0], num_neurons, weights);
 	
+	switch(num_layers) {
+	case 1:
+
+	  nf = neural_forwarderr(inputs, outputs[0], num_neurons, weights, bias_weight, &sq_cache);
+	  
+	  break;
+
+	case 2:
+	
+	  nf = neural_forwarderr2(inputs, outputs[0], num_neurons, weights, bias_weight, &sq_cache);
+
+	  break;
+
+	}
+	  
 	if (log_msefn != NULL) {
 	  fprintf(log_msefn, "%g\n", nf.mse);
 	}
 
-	{
+	if (num_layers == 1) {
 
 	  double z;
-	  vec3 delta;
+	  double delta[3];
 	  double delta_target;
-	  
-	  actual_y = output[0];
+
+	  actual_y = outputs[0];
 
 	  delta_target = (actual_y - nf.current_output);
-
-	  /*
+	  
 	  for (wno = 0; wno < num_neurons; wno++) {
 
-	    double z;
+	    z = sq_cache.hidden_nodesums[wno];
 	    
-	    delta[0] = weights[num_neurons + wno][0] * delta_target * sigmoid_deriv(hidden[wno]);
-	    delta[1] = weights[num_neurons + wno][1] * delta_target * sigmoid_deriv(hidden[wno]);
-	    delta[2] = weights[num_neurons + wno][2] * delta_target * sigmoid_deriv(hidden[wno]);
-	
-	    z = hidden[wno];
-	
-	    weights[num_neurons + wno][0] -= -learning_rate * (delta[0] * z);
-	    weights[num_neurons + wno][1] -= -learning_rate * (delta[1] * z);
-	    weights[num_neurons + wno][2] -= -learning_rate * (delta[2] * z);
+	    delta[0] = weights[3*wno+0] * delta_target * sigmoid_deriv(sq_cache.hidden_nodesums[wno]);
+	    delta[1] = weights[3*wno+1] * delta_target * sigmoid_deriv(sq_cache.hidden_nodesums[wno]);
+	    delta[2] = weights[3*wno+2] * delta_target * sigmoid_deriv(sq_cache.hidden_nodesums[wno]);
+	    
+	    weights[3*wno+0] -= -learning_rate * (delta[0] * z);
+	    weights[3*wno+1] -= -learning_rate * (delta[1] * z);
+	    weights[3*wno+2] -= -learning_rate * (delta[2] * z);	    
 	
 	  }	  
-	  */
-	  
-	  for (wno = 0; wno < num_neurons; wno++) {
-	    
-	    vec3 z;
-	    
-	    delta[0] = weights[wno][0] * delta_target * sigmoid_deriv(input[0]);
-	    delta[1] = weights[wno][1] * delta_target * sigmoid_deriv(input[1]);
-	    delta[2] = weights[wno][2] * delta_target * sigmoid_deriv(input[2]);
-	
-	    z[0] = input[0];
-	    z[1] = input[1];
-	    z[2] = input[2];
-	
-	    weights[wno][0] -= -learning_rate * (delta[0] * z[0]);
-	    weights[wno][1] -= -learning_rate * (delta[1] * z[1]);
-	    weights[wno][2] -= -learning_rate * (delta[2] * z[2]);
-	
-	  }
 
-	  /*
 	  {
-	    double z;
+	    z = 1.0;
+	    delta[0] = bias_weight * delta_target * sigmoid_deriv(z);
 	    bias_weight -= -learning_rate * (delta[0] * z);
 	  }
-	  */
 	  
 	}
-	  
-	if (progress_meter) {
-
-	  wno = (iterno % num_weights);
 	
-	  printf("[%ld] Percent completed %.04g%% (Sample weights %.03f %.03f %.03f and cached output %.06g) Current output %g mse %g    \r", iterno, 100.0 * percent_completed, weights[wno][0], weights[wno][1], weights[wno][2], outputs_cache[wno], nf.current_output, nf.mse);
+	if (num_layers == 2) {
+
+	  double z;
+	  double delta;
+	  double delta_target;
+
+	  double *hidden_weights;
+	  double *output_weights;
+
+	  {
+	  
+	    hidden_weights = weights;
+	    output_weights = (hidden_weights + num_neurons);
+
+	  }
+	    
+	  actual_y = outputs[0];
+
+	  delta_target = (actual_y - nf.current_output);
+	  
+	  for (wno = 0; wno < num_neurons; wno++) {
+
+	    delta = output_weights[wno] * delta_target * sigmoid_deriv(sq_cache.hidden_nodesums[wno]);
+	
+	    z = sq_cache.hidden_squashed[wno];
+	    
+	    output_weights[wno] -= -learning_rate * (delta * z);
+	
+	  }	  
+
+	  {
+	    z = 1.0;
+	    delta = bias_weight * delta_target * sigmoid_deriv(z);
+	    bias_weight -= -learning_rate * (delta * z);
+	  }
+
+	  {
+
+	    double delta_1;
+
+	    for (wno = 0; wno < num_neurons; wno++) {
+
+	      z = inputs[0];
+	      delta_1 = (sq_cache.hidden_nodesums[wno] - inputs[0]);
+	      delta = hidden_weights[wno] * delta_1 * sigmoid_deriv(inputs[0]);
+	      hidden_weights[wno] -= -learning_rate * (delta * z);
+
+	      z = inputs[1];
+	      delta_1 = (sq_cache.hidden_nodesums[wno] - inputs[1]);
+	      delta = hidden_weights[wno] * delta_1 * sigmoid_deriv(inputs[1]);
+	      hidden_weights[wno] -= -learning_rate * (delta * z);
+
+	      z = inputs[2];	      
+	      delta_1 = (sq_cache.hidden_nodesums[wno] - inputs[2]);
+	      delta = hidden_weights[wno] * delta_1 * sigmoid_deriv(inputs[2]);
+	      hidden_weights[wno] -= -learning_rate * (delta * z);	      
+	
+	    }
+
+	  }
+	    
+	}
+	  
+	if (progress_meter && (!(iterno % num_accumulated))) {
+
+	  wno = (iterno % num_neurons);
+	
+	  printf("[%ld] Percent completed %.04g%% (Sample weights %.03g %.03g %.03g) Current output %g mse %g    \r", iterno, 100.0 * percent_completed, weights[3*wno+0], weights[3*wno+1], weights[3*wno+2], nf.current_output, nf.mse);
 	
 	}
 
@@ -642,10 +684,6 @@ int main(int argc, char *argv[]) {
 
 	bool_t bret;
 
-	unsigned int size;
-
-	unsigned int maxsize;
-	
 	xdrstdio_create(&xdrs, fp, XDR_ENCODE);
 
 	bret = xdr_long(&xdrs, &num_weights);
@@ -654,16 +692,17 @@ int main(int argc, char *argv[]) {
 	  return -1;
 	}
 
-	bret = xdr_vector(&xdrs, weights, 3 * num_weights, sizeof(float), xdr_float);
+	bret = xdr_vector(&xdrs, weights, num_weights, sizeof(double), xdr_double);
 
-	/*
-	size = num_weights;
-	maxsize = num_weights;
-	bret = xdr_array(&xdrs, &weights, &size, maxsize, sizeof(vec3), xdr_vec3);
-	*/
-	
 	if (!bret) {
 	  printf("Trouble writing weights to %s.\n", nn_xdrfn);
+	  return -1;
+	}
+
+	bret = xdr_vector(&xdrs, &bias_weight, 1, sizeof(double), xdr_double);
+
+	if (!bret) {
+	  printf("Trouble writing bias weight to %s.\n", nn_xdrfn);
 	  return -1;
 	}
 	
@@ -683,9 +722,16 @@ int main(int argc, char *argv[]) {
 
   }
 
+  free(dataset_inputs);
+  free(dataset_outputs);
+
+  free(training_inputs);
+  free(training_outputs);
+  
   free(weights);
-  free(hidden);
-  free(outputs_cache);
+  free(hidden_squashed);
+  free(hidden_nodesums);
+  free(output_nodesums);
 
   free(inputs);
   free(outputs);

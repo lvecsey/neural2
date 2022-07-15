@@ -3,19 +3,13 @@
 
 #include "linmath.h"
 
-double neural_forward(vec3 input, long int num_neurons, vec3 *weights);
+double neural_forward(double *inputs, long int num_neurons, double *weights, double bias_weight);
 
-typedef struct {
+#include "nf_ret.h"
 
-  double current_output;
+#include "squashed_nodes.h"
 
-  double mse;
-  
-} nf_ret;
-
-nf_ret neural_forwarderr(vec3 input, double output, long int num_neurons, vec3 *weights);
-
-nf_ret neural_forwarderr2(vec3 input, double output, long int num_neurons, vec3 *weights, double *hidden);
+nf_ret neural_forwarderr(double *inputs, double output, long int num_neurons, double *weights, double bias_weight, squashed_nodes *sq_cache);
 
 #endif
 

@@ -4,7 +4,7 @@ the expected output. Input values are between -1..1 and the training data has ou
 
 Give an input value to the program and after running it, the result should say whether it is out of range (close to zero), or it should give a value close to 1 signifying that a match was made.
 
-In the default configuration there are 1200 rows of training data, 80% of which will be presented to the neural network at any given time during training (across the 32 neuron nodes, which includes one bias node)
+In the default configuration there are 1200 rows of training data, 80% of which will be presented to the neural network at any given time during training (across the 64 neuron nodes, with the addition of one bias node)
 
 *Dataset*
 
@@ -49,12 +49,20 @@ rm neural_net.xdr
 ./neural2
 ```
 
+*Test results - What to look for*
+
+```console
+make test-values
+```
+
+This will run four ./neural2-lookup tests with input data in valid ranges, similar to the training data. The first two lookups should return an output final that is close to 1. The last two lookups should be near 0
+
 *Verbose mode*
 
 You can run a low amount of iterations with the progress meter off, to also see line by line that the mean squared error (MSE) is reducing.
 
 ```console
-VERBOSE=1 PROGRESS=0 ./neural2 32 150
+VERBOSE=1 PROGRESS=0 ./neural2 64 150
 ```
 
 *Silent mode*
@@ -62,7 +70,7 @@ VERBOSE=1 PROGRESS=0 ./neural2 32 150
 If you have a sense for how long your runtime will be, you can run with minimal output (no progress meter)
 
 ```console
-PROGRESS=0 ./neural2 32 125000
+PROGRESS=0 ./neural2 64 1250000
 ```
 
 *Plotting the error*
@@ -72,7 +80,7 @@ Use the mse.plot file which uses the outputted mse.dat file (single file lines o
 ```console
 make neural2
 rm neural_net.xdr
-./neural2 32 25000
+./neural2 64 1250000
 gnuplot mse.plot
 feh mse.png
 ```

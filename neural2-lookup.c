@@ -13,13 +13,13 @@
 
 #include "linmath.h"
 
-#include "dotproduct.h"
-
 #include "sigmoid.h"
 
 #include "relu.h"
 
 #include "forward.h"
+
+#include "forward2.h"
 
 #include "neural_cfg.h"
 
@@ -27,13 +27,13 @@
 
 int main(int argc, char *argv[]) {
 
-  XDR xdrs;
-
   long int num_neurons;
 
-  vec3 *weights;
+  double *weights;
+
+  double bias_weight;
   
-  vec3 input;
+  double inputs[3];
 
   double *hidden;
   
@@ -41,13 +41,13 @@ int main(int argc, char *argv[]) {
 
   double output;
   
-  double outputs_cache;
-
   double current_output;
 
-  int retval;
-
   long int num_weights;
+
+  long int num_layers;
+
+  num_layers = def_layers;
   
   num_neurons = def_neurons;
   
@@ -55,11 +55,11 @@ int main(int argc, char *argv[]) {
 	
     filename = argc>1 ? argv[1] : def_filename;
 	
-    input[0] = argc>2 ? strtod(argv[2],NULL) : 0.5;
-    input[1] = argc>3 ? strtod(argv[3],NULL) : 0.5;
-    input[2] = argc>4 ? strtod(argv[4],NULL) : 0.5;
+    inputs[0] = argc>2 ? strtod(argv[2],NULL) : 0.5;
+    inputs[1] = argc>3 ? strtod(argv[3],NULL) : 0.5;
+    inputs[2] = argc>4 ? strtod(argv[4],NULL) : 0.5;
 
-    printf("Processing input value %g %g %g\n", input[0], input[1], input[2]);
+    printf("Processing input value %g %g %g\n", inputs[0], inputs[1], inputs[2]);
   }
 
   {
@@ -80,14 +80,16 @@ int main(int argc, char *argv[]) {
 
       xdr_long(&xdrs, &num_weights);
 
-      weights = malloc(sizeof(vec3) * num_weights);
+      weights = malloc(sizeof(double) * num_weights);
       if (weights == NULL) {
 	perror("malloc");
 	return -1;
       }
 
-      xdr_vector(&xdrs, weights, 3 * num_weights, sizeof(float), xdr_float);
+      xdr_vector(&xdrs, weights, num_weights, sizeof(double), xdr_double);
 
+      xdr_vector(&xdrs, &bias_weight, 1, sizeof(double), xdr_double);
+      
       xdr_destroy(&xdrs);
 
       /*
@@ -102,17 +104,30 @@ int main(int argc, char *argv[]) {
 
   }
 
-  /*
   hidden = malloc(num_neurons * sizeof(double));
   if (hidden == NULL) {
     perror("malloc");
     return -1;
   }
-  */
   
-  current_output = neural_forward(input, num_neurons, weights);
+  switch(num_layers) {
 
-  // free(hidden);
+  case 1:
+
+    current_output = neural_forward(inputs, num_neurons, weights, bias_weight);
+    
+    break;
+
+  case 2:
+    
+    current_output = neural_forward2(inputs, num_neurons, weights, bias_weight, hidden);
+
+    break;
+
+  }
+  
+  free(weights);
+  free(hidden);
 
   printf("Current output (final) %.04g\n", current_output);
   
